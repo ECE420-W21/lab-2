@@ -18,14 +18,18 @@
 #include <stdlib.h>
 #include <pthread.h> 
 #include <string.h>
+#include <sys/types.h>
+#include <sys/socket.h>
+#include <netinet/in.h>
+#include <arpa/inet.h>
+#include <unistd.h>
 #include "timer.h"
 #include "common.h"
-#define NUM_STR 1024
-#define STR_LEN 1000
 
-int thread_count;  
+int array_size;
+char* ip_addr;
+int port;  
 char **theArray; 
-unsigned int* seed;
 pthread_mutex_t mutex;
 
 void *Operate(void* rank);  /* Thread function */
@@ -37,69 +41,99 @@ void *Operate(void* rank);  /* Thread function */
 */
 /*--------------------------------------------------------------------*/
 int main(int argc, char* argv[]) {
-    long       thread;  /* Use long in case of a 64-bit system */
-    pthread_t* thread_handles; 
-    int i;
-    double start, finish, elapsed;  
+    struct sockaddr_in sock_var;
+    int serverFileDescriptor=socket(AF_INET,SOCK_STREAM,0);
+    int clientFileDescriptor;
+
+    if (argc < 4)
+    {
+        printf("Not enough command line argumaents");
+        return 0;
+    }
 
     /* Get number of threads from command line */
-    thread_count = strtol(argv[1], NULL, 10);  
-    
-    /* Intializes random number generators */
-    seed = malloc(thread_count*sizeof(unsigned int));
-    for (i = 0; i < thread_count; i++)
-        seed[i] = i;
-    
-    /* Create the memory and fill in the initial values for theArray */
-    theArray = (char**) malloc(NUM_STR * sizeof(char*));
-    for (i = 0; i < NUM_STR; i ++){
-        theArray[i] = (char*) malloc(STR_LEN * sizeof(char));
-        sprintf(theArray[i], "theArray[%d]: initial value", i);
-        printf("%s\n\n", theArray[i]);
-    }
-   
-    thread_handles = malloc (thread_count*sizeof(pthread_t)); 
-    pthread_mutex_init(&mutex, NULL);
-    
-    GET_TIME(start); 
-    for (thread = 0; thread < thread_count; thread++)  
-        pthread_create(&thread_handles[thread], NULL, Operate, (void*) thread);  
+    array_size = atoi(argv[1]);  
+    ip_addr = argv[2];
+    port = atoi(argv[3]);
 
-    for (thread = 0; thread < thread_count; thread++) 
-        pthread_join(thread_handles[thread], NULL); 
-    GET_TIME(finish);
-    elapsed = finish - start;   
-    printf("The elapsed time is %e seconds\n", elapsed);
-   
-    pthread_mutex_destroy(&mutex);
-    free(thread_handles);
-    free(seed);
-    for (i=0; i<NUM_STR; ++i){
-        free(theArray[i]);
+    sock_var.sin_addr.s_addr=inet_addr(ip_addr);
+    sock_var.sin_port=port;
+    sock_var.sin_family=AF_INET;
+
+    if(bind(serverFileDescriptor,(struct sockaddr*)&sock_var,sizeof(sock_var))>=0)
+    {   
+        printf("socket has been created\n");
+
+        // long       thread;  /* Use long in case of a 64-bit system */
+        pthread_t* thread_handles; 
+        int i;
+        // double start, finish, elapsed;  
+        
+        /* Create the memory and fill in the initial values for theArray */
+        theArray = (char**) malloc(array_size * sizeof(char*));
+        for (i = 0; i < array_size; i ++){
+            theArray[i] = (char*) malloc(COM_BUFF_SIZE * sizeof(char));
+            sprintf(theArray[i], "theArray[%d]: initial value", i);
+            // printf("%s\n\n", theArray[i]);
+        }
+    
+        thread_handles = malloc (COM_NUM_REQUEST*sizeof(pthread_t)); 
+        pthread_mutex_init(&mutex, NULL);
+        
+        listen(serverFileDescriptor,2000); 
+        while(1)        //loop infinity
+        {
+            for(i=0;i<COM_NUM_REQUEST;i++)      //can support 20 clients at a time
+            {
+                clientFileDescriptor=accept(serverFileDescriptor,NULL,NULL);
+                printf("Connected to client %d\n",clientFileDescriptor);
+                pthread_create(&thread_handles[i],NULL,Operate,(void *)(long)clientFileDescriptor);
+            }
+        }
+        close(serverFileDescriptor); 
+        pthread_mutex_destroy(&mutex);
+        free(thread_handles);
+        for (i=0; i<array_size; ++i){
+            free(theArray[i]);
+        }
+        free(theArray);
+        
+    }else {
+        printf("socket creation failed\n");
     }
-    free(theArray);
+
     return 0;
 }  /* main */
 
 
 /*-------------------------------------------------------------------*/
-void *Operate(void* rank) {
-    long my_rank = (long) rank;
-    char buffer[STR_LEN]; // buffer to read and write
-    // Find a random position in theArray for read or write
-    int pos = rand_r(&seed[my_rank]) % NUM_STR;
-    int randNum = rand_r(&seed[my_rank]) % 10;  // write with 10% probability
-    sprintf(buffer, "theArray[%d] modified by thread %ld", pos, my_rank); // prepare the message
+void *Operate(void* args) {
+    
+    long clientFileDescriptor=(long)args;
+    char buffer[COM_BUFF_SIZE]; // buffer to read client mesage
+    ClientRequest* req;
+    req = malloc(sizeof(ClientRequest));
 
-    pthread_mutex_lock(&mutex); 
-    // write the content
-    if (randNum >= 9){ // 10% are write operations, others are reads
-        setContent(buffer, pos, (char**)theArray); // defined in "common.h"
+    read(clientFileDescriptor,buffer,COM_BUFF_SIZE);
+    ParseMsg(buffer, req);
+
+    if(req->is_read) {
+        pthread_mutex_lock(&mutex); 
+        getContent(req->msg,req->pos,theArray);
+        pthread_mutex_unlock(&mutex);
+
+        write(clientFileDescriptor,req->msg, COM_BUFF_SIZE);
+    }else {
+
+        pthread_mutex_lock(&mutex); 
+        setContent(req->msg,req->pos,theArray);
+        getContent(req->msg,req->pos,theArray);
+        pthread_mutex_unlock(&mutex);
+
+        write(clientFileDescriptor,req->msg, COM_BUFF_SIZE);
     }
-    printf("Thread %ld: randNum = %d\n", my_rank, randNum);
-    // read the content and display
-    getContent(buffer, pos, (char**)theArray); // defined in "common.h"
-    printf("%s\n\n", buffer); // display the result 
-    pthread_mutex_unlock(&mutex);
+
+    free(req);
+    close(clientFileDescriptor);
     return NULL;
 }
