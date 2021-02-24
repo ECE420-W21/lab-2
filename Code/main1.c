@@ -1,5 +1,5 @@
 /* File:  
- *    arrayRW.c
+ *    main1.c
  *
  * Purpose:
  *    Illustrate multithreaded reads and writes to a shared array
@@ -7,7 +7,7 @@
  #    in "common.h" to write and read the content
  *
  * Input:
- *    none
+ *    size of string array, server ip, and server port
  * Output:
  *    message from each thread
  *
@@ -45,10 +45,9 @@ int main(int argc, char* argv[]) {
     int serverFileDescriptor=socket(AF_INET,SOCK_STREAM,0);
     int clientFileDescriptor;
 
-    if (argc < 4)
-    {
-        printf("Not enough command line argumaents");
-        return 0;
+    if (argc != 4){ 
+        fprintf(stderr, "usage: %s <size_of_string_array> <server_ip> <server_port>\n", argv[0]);
+        exit(0);
     }
 
     /* Get number of threads from command line */
@@ -83,14 +82,17 @@ int main(int argc, char* argv[]) {
         listen(serverFileDescriptor,2000); 
         while(1)        //loop infinity
         {
-            for(i=0;i<COM_NUM_REQUEST;i++)      //can support 20 clients at a time
+            for(i=0;i<COM_NUM_REQUEST;i++)      
             {
                 clientFileDescriptor=accept(serverFileDescriptor,NULL,NULL);
                 printf("Connected to client %d\n",clientFileDescriptor);
                 pthread_create(&thread_handles[i],NULL,Operate,(void *)(long)clientFileDescriptor);
             }
+            
         }
-        close(serverFileDescriptor); 
+        close(serverFileDescriptor);
+        for (i=0;i<COM_NUM_REQUEST;i++) 
+            pthread_join(thread_handles[i], NULL);
         pthread_mutex_destroy(&mutex);
         free(thread_handles);
         for (i=0; i<array_size; ++i){
