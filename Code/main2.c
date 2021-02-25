@@ -1,5 +1,5 @@
 /* File:  
- *    main1.c
+ *    main2.c
  *
  * Purpose:
  *    Illustrate multithreaded reads and writes to a shared array
@@ -7,11 +7,11 @@
  #    in "common.h" to write and read the content
  *
  * Input:
- *    size of string array, server ip, and server port
+ *    none
  * Output:
  *    message from each thread
  *
- * Usage:    ./main1 <size_of_string_array> <server_ip> <server_port>
+ * Usage:    ./main2 <size_of_string_array> <server_ip> <server_port>
  *
  */
 #include <stdio.h>
@@ -30,7 +30,7 @@ int array_size;
 char* ip_addr;
 int port;  
 char **theArray; 
-pthread_mutex_t mutex;
+pthread_mutex_t mutex_array[COM_NUM_REQUEST];
 
 void *Operate(void* rank);  /* Thread function */
 
@@ -77,23 +77,22 @@ int main(int argc, char* argv[]) {
         }
     
         thread_handles = malloc (COM_NUM_REQUEST*sizeof(pthread_t)); 
-        pthread_mutex_init(&mutex, NULL);
+        for (i = 0; i < COM_NUM_REQUEST; i++)
+            pthread_mutex_init(&mutex_array[i], NULL);
         
         listen(serverFileDescriptor,2000); 
         while(1)        //loop infinity
         {
-            for(i=0;i<COM_NUM_REQUEST;i++)      
+            for(i=0;i<COM_NUM_REQUEST;i++)      //can support 20 clients at a time
             {
                 clientFileDescriptor=accept(serverFileDescriptor,NULL,NULL);
                 printf("Connected to client %d\n",clientFileDescriptor);
                 pthread_create(&thread_handles[i],NULL,Operate,(void *)(long)clientFileDescriptor);
             }
-            
         }
-        close(serverFileDescriptor);
-        for (i=0;i<COM_NUM_REQUEST;i++) 
-            pthread_join(thread_handles[i], NULL);
-        pthread_mutex_destroy(&mutex);
+        close(serverFileDescriptor); 
+        for (i = 0; i < COM_NUM_REQUEST; i++)
+            pthread_mutex_destroy(&mutex_array[i]);
         free(thread_handles);
         for (i=0; i<array_size; ++i){
             free(theArray[i]);
@@ -120,17 +119,17 @@ void *Operate(void* args) {
     ParseMsg(buffer, req);
 
     if(req->is_read) {
-        pthread_mutex_lock(&mutex); 
+        pthread_mutex_lock(&mutex_array[req->pos]); 
         getContent(req->msg,req->pos,theArray);
-        pthread_mutex_unlock(&mutex);
+        pthread_mutex_unlock(&mutex_array[req->pos]);
 
         write(clientFileDescriptor,req->msg, COM_BUFF_SIZE);
     }else {
 
-        pthread_mutex_lock(&mutex); 
+        pthread_mutex_lock(&mutex_array[req->pos]); 
         setContent(req->msg,req->pos,theArray);
         getContent(req->msg,req->pos,theArray);
-        pthread_mutex_unlock(&mutex);
+        pthread_mutex_unlock(&mutex_array[req->pos]);
 
         write(clientFileDescriptor,req->msg, COM_BUFF_SIZE);
     }
