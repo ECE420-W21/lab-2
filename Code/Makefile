@@ -17,3 +17,6 @@ client: client.c
 		
 attacker: attacker.c 
 	gcc -g -Wall -o attacker attacker.c -lpthread -lm
+
+avg: avg.c 
+	gcc -g -Wall -o avg avg.c 
