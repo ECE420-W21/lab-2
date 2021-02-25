@@ -1,19 +1,14 @@
 /* File:  
- *    arrayRW.c
+ *    main3.c
  *
  * Purpose:
- *    Illustrate multithreaded reads and writes to a shared array
- *    Note that it is requred to use the "getContent" and "SaveContent" function 
- #    in "common.h" to write and read the content
+ *    Illustrate a multithreaded server that employs a single read/write lock to protect the 
+ *    critical section 
  *
  * Input:
- *    none
- * Output:
- *    message from each thread
+ *    size of string array, server ip, and server port
  *
  * Usage:    ./main3 <size_of_string_array> <server_ip> <server_port>
- *
- * Test ./attacker <size_of_string_array> <server_ip> <server_port>
  *
  */
 #include <stdio.h>
@@ -46,11 +41,11 @@ int main(int argc, char* argv[]) {
     struct sockaddr_in sock_var;
     int serverFileDescriptor=socket(AF_INET,SOCK_STREAM,0);
     int clientFileDescriptor;
+    double times[COM_NUM_REQUEST]; 
 
-    if (argc < 4)
-    {
-        printf("Not enough command line argumaents\n");
-        return 0;
+    if (argc != 4){ 
+        fprintf(stderr, "usage: %s <size_of_string_array> <server_ip> <server_port>\n", argv[0]);
+        exit(0);
     }
 
     /* Get number of threads from command line */
@@ -65,18 +60,14 @@ int main(int argc, char* argv[]) {
     if(bind(serverFileDescriptor,(struct sockaddr*)&sock_var,sizeof(sock_var))>=0)
     {   
         printf("socket has been created\n");
-
-        // long       thread;  /* Use long in case of a 64-bit system */
         pthread_t* thread_handles; 
-        int i;
-        // double start, finish, elapsed;  
+        int i;  
         
         /* Create the memory and fill in the initial values for theArray */
         theArray = (char**) malloc(array_size * sizeof(char*));
         for (i = 0; i < array_size; i ++){
             theArray[i] = (char*) malloc(COM_BUFF_SIZE * sizeof(char));
             sprintf(theArray[i], "theArray[%d]: initial value", i);
-            // printf("%s\n\n", theArray[i]);
         }
     
         thread_handles = malloc (COM_NUM_REQUEST*sizeof(pthread_t)); 
@@ -88,12 +79,14 @@ int main(int argc, char* argv[]) {
             for(i=0;i<COM_NUM_REQUEST;i++)  
             {
                 clientFileDescriptor=accept(serverFileDescriptor,NULL,NULL);
-                //printf("Connected to client %d\n",clientFileDescriptor);
                 pthread_create(&thread_handles[i],NULL,Operate,(void *)(long)clientFileDescriptor);
             }
-            for (i=0;i<COM_NUM_REQUEST;i++){
-                pthread_join(thread_handles[i], NULL);
+            for (i=0;i<COM_NUM_REQUEST;i++)
+            {
+                pthread_join(thread_handles[i], (void **) &times[i]);
             }
+
+            saveTimes(times, COM_NUM_REQUEST);
         }
         close(serverFileDescriptor);
         pthread_rwlock_destroy(&rwlock);
@@ -117,11 +110,15 @@ void *Operate(void* args) {
     long clientFileDescriptor=(long)args;
     char buffer[COM_BUFF_SIZE]; // buffer to read client mesage
     ClientRequest* req;
+    double start, finish;
+    double * elapsed;
+    double local_elapsed = 0;
     req = malloc(sizeof(ClientRequest));
 
     read(clientFileDescriptor,buffer,COM_BUFF_SIZE);
     ParseMsg(buffer, req);
 
+    GET_TIME(start);
     if(req->is_read) {
         pthread_rwlock_rdlock(&rwlock);
         getContent(req->msg,req->pos,theArray);
@@ -139,8 +136,11 @@ void *Operate(void* args) {
 
         write(clientFileDescriptor,req->msg, COM_BUFF_SIZE);
     }
+    GET_TIME(finish);
+    local_elapsed = finish - start;
+    elapsed = &local_elapsed;
 
     free(req);
     close(clientFileDescriptor);
-    return NULL;
+    pthread_exit((void *) elapsed);
 }
