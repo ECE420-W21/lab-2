@@ -85,14 +85,15 @@ int main(int argc, char* argv[]) {
             for(i=0;i<COM_NUM_REQUEST;i++)      
             {
                 clientFileDescriptor=accept(serverFileDescriptor,NULL,NULL);
-                printf("Connected to client %d\n",clientFileDescriptor);
+                //printf("Connected to client %d\n",clientFileDescriptor);
                 pthread_create(&thread_handles[i],NULL,Operate,(void *)(long)clientFileDescriptor);
+            }
+            for (i=0;i<COM_NUM_REQUEST;i++){
+                pthread_join(thread_handles[i], NULL);
             }
             
         }
         close(serverFileDescriptor);
-        for (i=0;i<COM_NUM_REQUEST;i++) 
-            pthread_join(thread_handles[i], NULL);
         pthread_mutex_destroy(&mutex);
         free(thread_handles);
         for (i=0; i<array_size; ++i){
