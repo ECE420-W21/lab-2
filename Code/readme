@@ -24,5 +24,14 @@ Content
 ----
 7. test.sh
    ** A shell script showing you how to run your client 100 times.
+----
+8. main1.c
+   ** First server implmentation using a single mutex to protect the critical section.
+9. main2.c
+   ** Second server implmentation using a multiple mutexes (one for each string in the array) to protect the critical section.
+10. main3.c
+   ** Third server implmentation using a single read/write lock to protect the critical section.
+11. main4.c
+   ** Fourth server implmentation using a multiple read/write locks (one for each string in the array) to protect the critical section.
 =====
 Please also find the detailed instructions in the comments of the individual files.
